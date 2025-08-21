@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collibra Asset Summary</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* Custom styles for a clean, modern look */
+        body {
+            font-family: 'Inter', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        /* Simple spinner animation */
+        .spinner {
+            border-top-color: #3498db;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-800 dark:text-gray-200 min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl mx-auto bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-8 space-y-6">
+        <!-- Header Section -->
+        <div class="text-center">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">Asset Creation Summary</h1>
+            <p class="text-gray-500 dark:text-gray-400 mt-1">Count of assets created since a specific date.</p>
+        </div>
+
+        <!-- Controls Section -->
+        <div id="controls" class="space-y-4">
+            <div>
+                <label for="start-date" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Count assets created on or after:</label>
+                <input type="date" id="start-date" class="w-full px-4 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition">
+            </div>
+            <button id="generate-btn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-transform transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800">
+                Generate Summary
+            </button>
+        </div>
+
+        <!-- Status/Loading Section -->
+        <div id="status-container" class="hidden text-center p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+            <div class="flex items-center justify-center">
+                <div class="spinner w-6 h-6 border-4 border-gray-200 dark:border-gray-600 rounded-full"></div>
+                <p id="status-text" class="ml-3 font-medium text-gray-600 dark:text-gray-300">Initializing...</p>
+            </div>
+        </div>
+
+        <!-- Error Display -->
+        <div id="error-box" class="hidden p-4 bg-red-100 dark:bg-red-900/50 border-l-4 border-red-500 text-red-700 dark:text-red-300 rounded-r-lg">
+            <p class="font-bold">An Error Occurred</p>
+            <p id="error-message"></p>
+        </div>
+
+        <!-- Results Section -->
+        <div id="results-container" class="hidden space-y-4">
+            <div class="text-center p-4 bg-green-50 dark:bg-green-900/50 rounded-lg">
+                 <h2 class="text-xl font-bold text-green-800 dark:text-green-200">Fetch Complete!</h2>
+                 <p class="text-gray-600 dark:text-gray-300">Total assets found: <span id="total-assets" class="font-bold">0</span></p>
+            </div>
+            <div>
+                <h3 class="text-lg font-semibold mb-2 text-center">Summary by Asset Type</h3>
+                <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-700">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Asset Type</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Count</th>
+                            </tr>
+                        </thead>
+                        <tbody id="summary-table-body" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            <!-- Rows will be injected here by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const generateBtn = document.getElementById('generate-btn');
+        const startDateInput = document.getElementById('start-date');
+        const statusContainer = document.getElementById('status-container');
+        const statusText = document.getElementById('status-text');
+        const errorBox = document.getElementById('error-box');
+        const errorMessage = document.getElementById('error-message');
+        const resultsContainer = document.getElementById('results-container');
+        const totalAssetsEl = document.getElementById('total-assets');
+        const summaryTableBody = document.getElementById('summary-table-body');
+
+        // --- Initial Setup ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set default date to the first day of the current month
+            const today = new Date();
+            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+            startDateInput.value = firstDayOfMonth.toISOString().split('T')[0];
+            
+            // Add event listener
+            generateBtn.addEventListener('click', handleGenerateClick);
+        });
+
+
+        /**
+         * Main handler function when the generate button is clicked.
+         */
+        async function handleGenerateClick() {
+            // --- Get Base URL from the browser's current location ---
+            const baseUrl = window.location.origin;
+            const startDateValue = startDateInput.value;
+
+            if (!startDateValue) {
+                showError('Please select a start date.');
+                return;
+            }
+            // Format date to ISO string with UTC time for the GraphQL query
+            const startDate = new Date(startDateValue).toISOString();
+
+            // --- Reset UI State ---
+            generateBtn.disabled = true;
+            generateBtn.textContent = 'Generating...';
+            errorBox.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            statusContainer.classList.remove('hidden');
+
+            try {
+                // --- Step 1: Fetch CSRF Token for secure communication ---
+                statusText.textContent = 'Authenticating session...';
+                const csrfToken = await fetchCsrfToken(baseUrl);
+                if (!csrfToken) {
+                    throw new Error('Could not retrieve CSRF token. Are you logged into Collibra?');
+                }
+
+                // --- Step 2: Start the main fetch and process logic ---
+                const allAssets = await fetchAllAssets(baseUrl, csrfToken, startDate);
+
+                // --- Step 3: Process and Display Results ---
+                if (allAssets) {
+                    const countsByType = aggregateCounts(allAssets);
+                    displayResults(allAssets.length, countsByType);
+                }
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                // --- Final UI State ---
+                generateBtn.disabled = false;
+                generateBtn.textContent = 'Generate Summary';
+                statusContainer.classList.add('hidden');
+            }
+        }
+
+        /**
+         * Fetches a CSRF token from the Collibra REST API.
+         * This token is required for making secure requests.
+         */
+        async function fetchCsrfToken(baseUrl) {
+            const endpoint = `${baseUrl}/rest/2.0/auth/sessions/current?include=csrfToken`;
+            const response = await fetch(endpoint, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch CSRF token. Status: ${response.status}`);
+            }
+            const data = await response.json();
+            return data.csrfToken;
+        }
+
+
+        /**
+         * Fetches all paginated assets from the GraphQL API using the CSRF token.
+         * Updates the UI with progress.
+         */
+        async function fetchAllAssets(baseUrl, csrfToken, startDate) {
+            const endpoint = `${baseUrl}/graphql/knowledgeGraph/v1`;
+            const limit = 1000;
+            let offset = 0;
+            const allAssets = [];
+
+            while (true) {
+                const query = `
+                    query Assets($limit: Int, $offset: Int, $startDate: DateTime) {
+                        assets(limit: $limit, offset: $offset, where: { createdOn: { gte: $startDate } }) {
+                            type { name }
+                        }
+                    }
+                `;
+                const variables = { limit, offset, startDate };
+
+                statusText.textContent = `Fetching assets... Found: ${allAssets.length}`;
+                
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken, // Use CSRF token for authentication
+                    },
+                    body: JSON.stringify({ query, variables }),
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API request failed with status ${response.status}: ${errorText}`);
+                }
+
+                const jsonResponse = await response.json();
+                if (jsonResponse.errors) {
+                    throw new Error(`GraphQL error: ${JSON.stringify(jsonResponse.errors)}`);
+                }
+
+                const fetchedAssets = jsonResponse.data.assets;
+                if (!fetchedAssets || fetchedAssets.length === 0) {
+                    break; // Exit loop when no more assets are returned
+                }
+
+                allAssets.push(...fetchedAssets);
+                offset += limit;
+            }
+            return allAssets;
+        }
+
+        /**
+         * Aggregates the total count for each asset type.
+         */
+        function aggregateCounts(assets) {
+            return assets.reduce((accumulator, asset) => {
+                const typeName = asset.type?.name || 'Unknown Type';
+                accumulator[typeName] = (accumulator[typeName] || 0) + 1;
+                return accumulator;
+            }, {});
+        }
+
+        /**
+         * Renders the final results into the DOM.
+         */
+        function displayResults(totalCount, countsByType) {
+            totalAssetsEl.textContent = totalCount.toLocaleString();
+            summaryTableBody.innerHTML = ''; // Clear previous results
+
+            // Sort types alphabetically for consistent display
+            const sortedTypes = Object.keys(countsByType).sort();
+
+            if (sortedTypes.length === 0) {
+                 summaryTableBody.innerHTML = '<tr><td colspan="2" class="text-center px-6 py-4 text-gray-500">No assets found for the specified criteria.</td></tr>';
+            } else {
+                for (const type of sortedTypes) {
+                    const count = countsByType[type];
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">${type}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-300 text-right font-mono">${count.toLocaleString()}</td>
+                    `;
+                    summaryTableBody.appendChild(row);
+                }
+            }
+
+            resultsContainer.classList.remove('hidden');
+        }
+
+        /**
+         * Displays an error message in the UI.
+         */
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorBox.classList.remove('hidden');
+        }
+
+    </script>
+</body>
+</html>
